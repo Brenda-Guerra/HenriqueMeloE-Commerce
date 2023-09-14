@@ -167,6 +167,14 @@ class RepositorioEntregadores():
     def check_entregador(self, email: str):
         return self.db.query(Entregadores).filter(Entregadores.email == email).first() is not None
     
+    def retornar(self, email: str):
+        entregador = self.db.query(Entregadores).filter(Entregadores.email == email).first()
+        
+        if entregador is not None:
+            return entregador
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f'Erro na realização de login com {email}')
+        
     def criar(self, entregador: Entregador):
         if self.check_entregador(entregador.email):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f'Erro no cadastro do email {entregador.email}')
@@ -397,7 +405,8 @@ def atualizar_cartao_existente(numero_cartao: str, card: credit_card, db: Sessio
     if not existing_card:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cartão não cadastrado")
     updated_card = repo.atualizar(numero_cartao, card)
-    return updated_card
+    response_message = {"message": f"Cartão de numero {numero_cartao} foi alterado"}
+    return JSONResponse(content=response_message, status_code=status.HTTP_201_CREATED)
 
 
 @app.post('/cupom', response_model=discount_coupom, status_code=status.HTTP_201_CREATED)
@@ -458,11 +467,11 @@ def criar_entregador(entregador: Entregador, db: Session = Depends(get_db)):
     return JSONResponse(content=response_message, status_code=status.HTTP_201_CREATED)
 
 
-@app.get('/entregadores', response_model=list[Entregador], status_code=status.HTTP_200_OK)
-def acessar_entregadores(db: Session = Depends(get_db)):
+@app.get('/entregadores/{email}', response_model=Entregador, status_code=status.HTTP_200_OK)
+def acessar_entregadores(email: str, db: Session = Depends(get_db)):
     repo = RepositorioEntregadores(db)
-    entregadores = repo.relatorio()
-    return entregadores
+    entregador = repo.retornar(email)
+    return entregador
 
 
 @app.put('/entregadores/{email}', response_model=Entregador)
@@ -506,14 +515,14 @@ async def submit_review(review: ReviewCreate):
     if not review.comment:
         raise HTTPException(status_code=400, detail="Comentários vazios não são permitidos")
 
-    db_review = Review(**review.dict())
+    db_review = Review(user=review.user, company=review.company, stars=review.stars, comment=review.comment)
     db = SessionLocal()
     db.add(db_review)
     db.commit()
     db.refresh(db_review)
     db.close()
 
-    return {"message": "Avaliação submetida com sucesso"}
+    return {"detail": "Avaliação submetida com sucesso"}
 
 @app.get("/get_reviews/{company}")
 async def get_reviews(company: str):
@@ -521,6 +530,21 @@ async def get_reviews(company: str):
     company_reviews = db.query(Review).filter(Review.company == company).all()
     db.close()
     return company_reviews
+
+@app.delete("/submit_review/{user}")
+async def delete_review(user: str):
+    db = SessionLocal()
+    db_review = db.query(Review).filter(Review.user == user).first()
+
+    if not db_review:
+        db.close()
+        raise HTTPException(status_code=404, detail="Review not found")
+
+    db.delete(db_review)
+    db.commit()
+    db.close()
+
+    return {"message": "Review deleted successfully"}
 
 @app.post('/loginlojas')
 def aceitar( logindata: LoginLojas, sessions: Session =  Depends(get_db)):
